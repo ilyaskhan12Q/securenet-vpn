@@ -124,6 +124,7 @@ pub struct ServerEntry {
     pub load_percent: u8,
     pub latency_ms: Option<u32>,
     pub features: Vec<String>,
+    pub plan: String, // "free" or "premium"
 }
 
 /// `GET /v1/servers`
@@ -142,6 +143,43 @@ pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
             load_percent: 42,
             latency_ms: Some(15),
             features: vec!["wireguard".to_string(), "multi-hop".to_string()],
+            plan: "free".to_string(),
+        },
+        ServerEntry {
+            id: Uuid::new_v4(),
+            name: "UK-London-01".to_string(),
+            country: "UK".to_string(),
+            city: "London".to_string(),
+            endpoint: "203.0.113.1:51820".to_string(),
+            public_key: "UK_SERVER_PUB_KEY".to_string(),
+            load_percent: 15,
+            latency_ms: Some(85),
+            features: vec!["wireguard".to_string(), "netflix-unblock".to_string()],
+            plan: "premium".to_string(),
+        },
+        ServerEntry {
+            id: Uuid::new_v4(),
+            name: "DE-Frankfurt-01".to_string(),
+            country: "DE".to_string(),
+            city: "Frankfurt".to_string(),
+            endpoint: "1.2.3.4:51820".to_string(),
+            public_key: "DE_SERVER_PUB_KEY".to_string(),
+            load_percent: 10,
+            latency_ms: Some(25),
+            features: vec!["wireguard".to_string()],
+            plan: "free".to_string(),
+        },
+        ServerEntry {
+            id: Uuid::new_v4(),
+            name: "SG-Singapore-01".to_string(),
+            country: "SG".to_string(),
+            city: "Singapore".to_string(),
+            endpoint: "5.6.7.8:51820".to_string(),
+            public_key: "SG_SERVER_PUB_KEY".to_string(),
+            load_percent: 5,
+            latency_ms: Some(120),
+            features: vec!["wireguard".to_string(), "gaming-opt".to_string()],
+            plan: "premium".to_string(),
         },
     ];
     (StatusCode::OK, Json(servers))

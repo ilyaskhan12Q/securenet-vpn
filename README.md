@@ -129,7 +129,7 @@ client — is written in Rust.  The choice is deliberate:
   │                     │                    │
   │  securenet-api (control plane)  TCP 8080 │
   │    POST /v1/auth/device                  │
-  │    GET  /v1/servers                      │
+  │    GET  /v1/servers (US, UK, DE, SG support)
   │    POST /v1/admin/peers                  │
   │    JWT middleware + RBAC                 │
   │    Rate limiter (per-IP token bucket)    │
@@ -266,6 +266,9 @@ cargo build --release
 cargo build --release -p securenet-server   # → target/release/securenet-server
 cargo build --release -p securenet-api      # → target/release/securenet-api
 cargo build --release -p securenet-client   # → target/release/sn
+
+# Fast execution check
+cargo run -p securenet-server -- --help
 
 # Install client binary system-wide
 cargo install --path crates/securenet-client
