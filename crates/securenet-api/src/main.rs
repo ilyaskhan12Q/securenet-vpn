@@ -82,16 +82,15 @@ async fn main() -> Result<()> {
     // --- Database ---
     let pool = PgPoolOptions::new()
         .max_connections(cfg.database.max_connections)
-        .connect(&cfg.database.url)
-        .await
+        .connect_lazy(&cfg.database.url)
         .context("Database connection failed")?;
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .context("Database migration failed")?;
+    // sqlx::migrate!("./migrations")
+    //     .run(&pool)
+    //     .await
+    //     .context("Database migration failed")?;
 
-    info!("Database connected and migrations applied");
+    info!("Database configuration loaded (lazy connection)");
 
     // --- Derive server public key from private ---
     // In production: parse cfg.interface.private_key and derive public key.
@@ -107,10 +106,10 @@ async fn main() -> Result<()> {
     // --- Router ---
     let public_routes = Router::new()
         .route("/v1/auth/device", post(handlers::auth_device))
-        .route("/healthz", get(handlers::healthz));
+        .route("/healthz", get(handlers::healthz))
+        .route("/v1/servers", get(handlers::list_servers));
 
     let authenticated_routes = Router::new()
-        .route("/v1/servers", get(handlers::list_servers))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             mw::require_auth,

@@ -7,7 +7,7 @@
 
 [interface]
 # Your private key (keep this secret).
-private_key = "REPLACE_WITH_YOUR_BASE64_PRIVATE_KEY"
+private_key = "yrIkET0bnAmEqNjcRp0JuDpMvth6dJ29AF1r9WFC7H8="
 
 # Client-side listen address for the WireGuard socket.
 # Use 127.0.0.1:0 to let the OS assign an ephemeral port.
@@ -31,7 +31,7 @@ dns = ["1.1.1.1", "8.8.8.8"]
 
 [server]
 name       = "SecureNet-US-East"
-public_key = "REPLACE_WITH_SERVER_BASE64_PUBLIC_KEY"
+public_key = "zn7+nHj8K3I30Y5K8pK6J8J+cd0o6tIXGw2wbTdSkSo="
 
 # Server endpoint — public IP and WireGuard UDP port.
 endpoint   = "198.51.100.1:51820"

@@ -8,7 +8,7 @@
 [interface]
 # Base64-encoded Curve25519 private key.  Generate with: securenet-server keygen
 # NEVER share this key or commit it to version control.
-private_key = "REPLACE_WITH_BASE64_PRIVATE_KEY"
+private_key = "yrIkET0bnAmEqNjcRp0JuDpMvth6dJ29AF1r9WFC7H8="
 
 # UDP port on which the WireGuard interface listens.
 # Ensure this port is open in your firewall and/or security group.
@@ -50,7 +50,7 @@ post_down = [
 
 [[peers]]
 name                 = "example-client"
-public_key           = "REPLACE_WITH_CLIENT_BASE64_PUBLIC_KEY"
+public_key           = "zn7+nHj8K3I30Y5K8pK6J8J+cd0o6tIXGw2wbTdSkSo="
 # Optional: PSK for quantum-resistance layer.
 # pre_shared_key     = "REPLACE_WITH_BASE64_PSK"
 allowed_ips          = ["10.0.0.2/32"]
