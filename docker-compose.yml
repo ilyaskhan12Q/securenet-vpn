@@ -1,0 +1,154 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# SecureNet VPN — Docker Compose Stack
+#
+# Services:
+#   postgres       — Primary database
+#   migrate        — One-shot migration runner (exits 0 on success)
+#   securenet-api  — REST control-plane API
+#   securenet-server — WireGuard data-plane daemon
+#   prometheus     — Metrics scraper
+#   grafana        — Metrics dashboard (optional)
+# ---------------------------------------------------------------------------
+
+networks:
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL 16
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: securenet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: securenet
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securenet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # Database migrations (sqlx migrate run)
+  # --------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://securenet:${POSTGRES_PASSWORD:-changeme}@postgres:5432/securenet
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # --------------------------------------------------------------------------
+  # Control-plane API
+  # --------------------------------------------------------------------------
+  securenet-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      SECURENET_CONFIG: /etc/securenet/server.toml
+      RUST_LOG: info,securenet_core=debug
+    volumes:
+      - ./config/server.toml.example:/etc/securenet/server.toml:ro
+      - ./tls:/etc/securenet/tls:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # WireGuard data-plane server daemon
+  # --------------------------------------------------------------------------
+  securenet-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    environment:
+      SECURENET_CONFIG: /etc/securenet/server.toml
+      RUST_LOG: info,securenet_core=debug
+    volumes:
+      - ./config/server.toml.example:/etc/securenet/server.toml:ro
+    ports:
+      - "51820:51820/udp"
+    networks:
+      - internal
+    depends_on:
+      securenet-api:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # Prometheus
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - internal
+
+  # --------------------------------------------------------------------------
+  # Grafana (optional — remove if not needed)
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN:-localhost}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - internal

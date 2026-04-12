@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# Stage 1: Builder
+# ---------------------------------------------------------------------------
+FROM rust:1.80-slim-bookworm AS builder
+
+# Install system dependencies required to compile networking crates.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config        \
+    libssl-dev        \
+    libc6-dev         \
+    clang             \
+    llvm              \
+    linux-headers-generic \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Cache dependency layers before copying source.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/securenet-core/Cargo.toml  crates/securenet-core/Cargo.toml
+COPY crates/securenet-server/Cargo.toml crates/securenet-server/Cargo.toml
+COPY crates/securenet-api/Cargo.toml   crates/securenet-api/Cargo.toml
+COPY crates/securenet-client/Cargo.toml crates/securenet-client/Cargo.toml
+
+# Create stub lib/main files so Cargo fetches and compiles deps only.
+RUN mkdir -p crates/securenet-core/src \
+             crates/securenet-server/src \
+             crates/securenet-api/src \
+             crates/securenet-client/src && \
+    echo "pub fn _stub() {}" > crates/securenet-core/src/lib.rs && \
+    echo "fn main() {}"      > crates/securenet-server/src/main.rs && \
+    echo "fn main() {}"      > crates/securenet-api/src/main.rs && \
+    echo "fn main() {}"      > crates/securenet-client/src/main.rs
+
+RUN cargo build --release -p securenet-server 2>&1 | tail -5
+
+# Remove the stubs and copy real source.
+RUN find target -name "*.rlib" -path "*/securenet*" -delete
+
+COPY crates/ crates/
+
+RUN cargo build --release -p securenet-server
+
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime image
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iptables       \
+    iproute2       \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user — the binary retains CAP_NET_ADMIN via Docker.
+RUN useradd -r -s /bin/false -u 1001 securenet
+
+COPY --from=builder /build/target/release/securenet-server /usr/local/bin/securenet-server
+
+RUN chmod +x /usr/local/bin/securenet-server
+
+EXPOSE 51820/udp
+
+ENTRYPOINT ["securenet-server"]
+CMD ["--config", "/etc/securenet/server.toml"]

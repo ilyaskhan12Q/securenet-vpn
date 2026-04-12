@@ -1,0 +1,21 @@
+[package]
+name = "securenet-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "sn"
+path = "src/main.rs"
+
+[dependencies]
+securenet-core = { path = "../securenet-core" }
+tokio.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dotenvy.workspace = true
+reqwest.workspace = true

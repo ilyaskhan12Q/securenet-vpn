@@ -1,0 +1,33 @@
+# ---- Rust build artefacts --------------------------------------------------
+/target/
+**/*.rs.bk
+Cargo.lock       # Keep for binaries (remove this line for libraries)
+
+# ---- Secrets — NEVER commit these ------------------------------------------
+.env
+*.key
+*.pem
+*.p12
+*.pfx
+/config/server.toml
+/config/client.toml
+/tls/
+
+# ---- IDE / editor ----------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ---- OS -------------------------------------------------------------------
+Thumbs.db
+
+# ---- Logs -----------------------------------------------------------------
+*.log
+/logs/
+
+# ---- Test artefacts -------------------------------------------------------
+/coverage/
+lcov.info

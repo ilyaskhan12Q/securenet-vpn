@@ -1,0 +1,108 @@
+# /etc/securenet/server.toml
+# SecureNet VPN Server Configuration
+# ---------------------------------------------------------------------------
+# Generate keys:  securenet-server keygen
+#                 OR: openssl genpkey -algorithm x25519 | base64
+# ---------------------------------------------------------------------------
+
+[interface]
+# Base64-encoded Curve25519 private key.  Generate with: securenet-server keygen
+# NEVER share this key or commit it to version control.
+private_key = "REPLACE_WITH_BASE64_PRIVATE_KEY"
+
+# UDP port on which the WireGuard interface listens.
+# Ensure this port is open in your firewall and/or security group.
+listen_addr = "0.0.0.0:51820"
+
+# Inner tunnel IP address for this server.
+address = "10.0.0.1/24"
+
+# TUN device name (Linux: any name; macOS: must match utun[0-9]+).
+tun_name = "wg0"
+
+# Interface MTU.  1420 is safe over IPv4; use 1400 over double-NAT.
+mtu = 1420
+
+# DNS servers pushed to clients (optional; requires split-DNS support in client).
+dns = ["1.1.1.1", "8.8.8.8"]
+
+# Shell commands to run after the interface comes up.
+# These rules enable NAT and IP forwarding for connected clients.
+post_up = [
+    "sysctl -w net.ipv4.ip_forward=1",
+    "iptables -A FORWARD -i wg0 -j ACCEPT",
+    "iptables -A FORWARD -o wg0 -j ACCEPT",
+    "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+]
+
+# Shell commands to run when the interface goes down (cleanup).
+post_down = [
+    "iptables -D FORWARD -i wg0 -j ACCEPT",
+    "iptables -D FORWARD -o wg0 -j ACCEPT",
+    "iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE",
+]
+
+# ---------------------------------------------------------------------------
+# Peers — add one [[peers]] block per connected client.
+# In production, peers are managed dynamically via the API; this section
+# is used for static/bootstrap peers only.
+# ---------------------------------------------------------------------------
+
+[[peers]]
+name                 = "example-client"
+public_key           = "REPLACE_WITH_CLIENT_BASE64_PUBLIC_KEY"
+# Optional: PSK for quantum-resistance layer.
+# pre_shared_key     = "REPLACE_WITH_BASE64_PSK"
+allowed_ips          = ["10.0.0.2/32"]
+# persistent_keepalive = 25  # seconds; enable for clients behind NAT
+
+# ---------------------------------------------------------------------------
+# REST Control-Plane API
+# ---------------------------------------------------------------------------
+
+[api]
+# Bind address for the HTTP/HTTPS management API.
+bind_addr = "127.0.0.1:8080"
+
+# Secret for HMAC-SHA256 JWT signing.  Use a cryptographically random string
+# of at least 64 bytes.  Rotate periodically.
+jwt_secret = "REPLACE_WITH_LONG_RANDOM_SECRET"
+
+# JWT validity window in seconds.
+token_ttl_secs = 3600
+
+# TLS for the API (recommended in production).
+tls_enabled = false
+# tls_cert = "/etc/securenet/tls/cert.pem"
+# tls_key  = "/etc/securenet/tls/key.pem"
+
+# Max auth attempts per second per IP (prevents brute-force).
+rate_limit_rps = 5
+
+# ---------------------------------------------------------------------------
+# PostgreSQL Database
+# ---------------------------------------------------------------------------
+
+[database]
+url             = "postgres://securenet:CHANGE_ME@localhost:5432/securenet"
+max_connections = 20
+
+# ---------------------------------------------------------------------------
+# Structured logging
+# ---------------------------------------------------------------------------
+
+[logging]
+# Filter string (tracing-subscriber env-filter syntax).
+level  = "info,securenet_core=debug"
+# Output format: "json" (production) | "pretty" (development) | "compact".
+format = "json"
+# Optional: write logs to a file (rotated daily by tracing-appender).
+# file = "/var/log/securenet/server.log"
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics
+# ---------------------------------------------------------------------------
+
+[metrics]
+enabled   = true
+bind_addr = "127.0.0.1:9090"

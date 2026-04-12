@@ -1,0 +1,96 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/securenet-core",
+    "crates/securenet-server",
+    "crates/securenet-client",
+    "crates/securenet-api",
+]
+
+[workspace.package]
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["SecureNet Contributors"]
+license     = "MIT OR Apache-2.0"
+repository  = "https://github.com/yourorg/securenet-vpn"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# Async runtime
+tokio          = { version = "1", features = ["full"] }
+tokio-util     = { version = "0.7", features = ["codec"] }
+
+# WireGuard userspace implementation (Cloudflare BoringTun)
+boringtun      = { version = "0.6" }
+
+# TUN interface abstraction
+tun            = { version = "0.6", features = ["async"] }
+
+# Cryptography
+ring           = "0.17"
+x25519-dalek   = { version = "2.0.0-rc.3", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+blake2         = "0.10"
+rand           = "0.8"
+rand_core      = { version = "0.6", features = ["getrandom"] }
+zeroize        = { version = "1", features = ["derive"] }
+
+# Serialization
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+toml           = "0.8"
+base64         = "0.22"
+hex            = "0.4"
+
+# Networking
+socket2        = { version = "0.5", features = ["all"] }
+bytes          = "1"
+ipnetwork      = "0.20"
+pnet           = "0.35"
+
+# HTTP / API
+axum           = { version = "0.7", features = ["macros"] }
+axum-extra     = { version = "0.9", features = ["typed-header"] }
+tower          = { version = "0.4", features = ["full"] }
+tower-http     = { version = "0.5", features = ["full"] }
+hyper          = { version = "1", features = ["full"] }
+
+# Auth / JWT
+jsonwebtoken   = "9"
+argon2         = "0.5"
+uuid           = { version = "1", features = ["v4", "serde"] }
+reqwest        = { version = "0.12", features = ["json"] }
+hmac           = "0.12"
+
+# Database
+sqlx           = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json"] }
+
+# Logging / tracing
+tracing                 = "0.1"
+tracing-subscriber      = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender        = "0.2"
+
+# Config / CLI
+clap           = { version = "4", features = ["derive", "env"] }
+config         = "0.14"
+dotenvy        = "0.15"
+
+# Error handling
+thiserror      = "1"
+anyhow         = "1"
+
+# Time
+chrono         = { version = "0.4", features = ["serde"] }
+
+# Metrics
+prometheus     = { version = "0.13", features = ["process"] }
+
+[profile.release]
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+panic         = "abort"
+strip         = "symbols"
+
+[profile.dev]
+opt-level = 1

@@ -1,0 +1,71 @@
+# ~/.config/securenet/client.toml
+# SecureNet VPN Client Configuration
+# ---------------------------------------------------------------------------
+# Generate your key pair first:  sn keygen
+# Then give your public_key to the server administrator to add as a peer.
+# ---------------------------------------------------------------------------
+
+[interface]
+# Your private key (keep this secret).
+private_key = "REPLACE_WITH_YOUR_BASE64_PRIVATE_KEY"
+
+# Client-side listen address for the WireGuard socket.
+# Use 127.0.0.1:0 to let the OS assign an ephemeral port.
+listen_addr = "127.0.0.1:0"
+
+# Inner tunnel IP assigned to you by the server administrator.
+address = "10.0.0.2/32"
+
+# TUN device name.
+tun_name = "wg0"
+
+# MTU — should match server value.
+mtu = 1420
+
+# DNS servers to use while the VPN is active.
+dns = ["1.1.1.1", "8.8.8.8"]
+
+# ---------------------------------------------------------------------------
+# Server peer — the VPN server this client connects to.
+# ---------------------------------------------------------------------------
+
+[server]
+name       = "SecureNet-US-East"
+public_key = "REPLACE_WITH_SERVER_BASE64_PUBLIC_KEY"
+
+# Server endpoint — public IP and WireGuard UDP port.
+endpoint   = "198.51.100.1:51820"
+
+# Route ALL traffic through the VPN.
+# Use a more specific CIDR list for split-tunnel mode.
+allowed_ips = ["0.0.0.0/0", "::/0"]
+
+# Optional pre-shared key for PSK mode.
+# pre_shared_key = "REPLACE_WITH_BASE64_PSK"
+
+# Keep the session alive behind NAT (recommended for mobile clients).
+persistent_keepalive = 25
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+[logging]
+level  = "info"
+format = "pretty"
+
+# ---------------------------------------------------------------------------
+# Security features
+# ---------------------------------------------------------------------------
+
+# Kill-switch: block ALL non-VPN traffic if the tunnel drops.
+# Prevents IP leaks during reconnection.
+kill_switch = true
+
+# Auto-reconnect on connection loss.
+auto_reconnect = true
+
+# Split-tunnel: leave empty for full-tunnel ("0.0.0.0/0").
+# If non-empty, only these destinations are routed through the VPN.
+# split_tunnel = ["10.0.0.0/8", "192.168.0.0/16"]
+split_tunnel = []
