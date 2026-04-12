@@ -384,6 +384,7 @@ Commands:
   status    Show connection status
   keygen    Generate a Curve25519 key pair
   servers   List available servers from the API
+  connect   Interactive prompt to select a server and connect
 
 Options:
   -c, --config <PATH>   Config file [default: ~/.config/securenet/client.toml]
@@ -417,6 +418,15 @@ sn keygen
 export SECURENET_API_URL=https://api.example.com
 export SECURENET_TOKEN=$(cat ~/.securenet/token)
 sn servers
+```
+
+### sn connect
+
+```sh
+export SECURENET_API_URL=https://api.example.com
+export SECURENET_TOKEN=$(cat ~/.securenet/token)
+sn connect
+# Opens an interactive menu to select a server and automatically configures the tunnel.
 ```
 
 ---

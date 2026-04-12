@@ -59,6 +59,7 @@ hyper          = { version = "1", features = ["full"] }
 jsonwebtoken   = "9"
 argon2         = "0.5"
 uuid           = { version = "1", features = ["v4", "serde"] }
+dialoguer      = "0.11"
 reqwest        = { version = "0.12", features = ["json"] }
 hmac           = "0.12"
 

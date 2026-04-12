@@ -63,6 +63,15 @@ enum Command {
         #[arg(long, env = "SECURENET_TOKEN")]
         token: String,
     },
+    /// Interactive prompt to select a server and connect.
+    Connect {
+        /// API base URL.
+        #[arg(long, env = "SECURENET_API_URL")]
+        api_url: String,
+        /// Bearer token.
+        #[arg(long, env = "SECURENET_TOKEN")]
+        token: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +94,7 @@ async fn main() -> Result<()> {
         Command::Down => cmd_down().await,
         Command::Status => cmd_status().await,
         Command::Servers { api_url, token } => cmd_servers(&api_url, &token).await,
+        Command::Connect { api_url, token } => cmd_connect(&cli.config, &api_url, &token).await,
     }
 }
 
@@ -195,6 +205,99 @@ async fn cmd_servers(api_url: &str, token: &str) -> Result<()> {
 
     let servers: serde_json::Value = resp.json().await.context("JSON parse failed")?;
     println!("{}", serde_json::to_string_pretty(&servers)?);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// connect (Interactive Selection)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct ServerEntry {
+    name: String,
+    country: String,
+    city: String,
+    endpoint: String,
+    public_key: String,
+    load_percent: u8,
+    latency_ms: Option<u32>,
+    plan: String,
+}
+
+async fn cmd_connect(config_path: &PathBuf, api_url: &str, token: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{api_url}/v1/servers"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .context("API request failed")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        error!(%status, %body, "API error fetching servers");
+        return Err(anyhow::anyhow!("API returned {status}"));
+    }
+
+    let servers: Vec<ServerEntry> = resp.json().await.context("Failed to parse server list")?;
+
+    if servers.is_empty() {
+        println!("No servers available.");
+        return Ok(());
+    }
+
+    let items: Vec<String> = servers.iter().map(|s| {
+        let latency = s.latency_ms.map(|l| format!("{}ms", l)).unwrap_or_else(|| "?".to_string());
+        format!("[{}] {} ({} - load: {}%, plan: {})", s.country, s.name, latency, s.load_percent, s.plan)
+    }).collect();
+
+    let selection = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt("Select a VPN server to connect to")
+        .default(0)
+        .items(&items)
+        .interact()
+        .context("Failed to render interactive menu")?;
+
+    let selected_server = &servers[selection];
+
+    println!("Selected: {}", selected_server.name);
+
+    let cfg = ClientConfig::from_file(config_path)
+        .with_context(|| format!("Failed to read config {:?}", config_path))?;
+
+    let mut server_peer = cfg.server.clone();
+    server_peer.endpoint = Some(selected_server.endpoint.parse().context("Invalid endpoint address from API")?);
+    server_peer.public_key = selected_server.public_key.clone();
+
+    info!(
+        server = ?server_peer.endpoint,
+        "Connecting to SecureNet VPN via interactive selection"
+    );
+
+    let key_pair = securenet_core::crypto::KeyPair::generate();
+
+    let _tunnel = Tunnel::start(
+        key_pair,
+        cfg.interface.listen_addr,
+        vec![server_peer],
+    )
+    .await
+    .context("Failed to start tunnel")?;
+
+    info!("VPN tunnel established");
+
+    if cfg.kill_switch {
+        apply_kill_switch(&cfg.interface.tun_name).await?;
+    }
+
+    tokio::signal::ctrl_c().await?;
+
+    info!("Disconnecting…");
+    if cfg.kill_switch {
+        remove_kill_switch(&cfg.interface.tun_name).await?;
+    }
+    info!("Disconnected");
     Ok(())
 }
 
