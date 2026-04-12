@@ -11,7 +11,7 @@ use chacha20poly1305::{
 };
 use rand_core::OsRng;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::ZeroizeOnDrop;
 
 use crate::error::{CoreError, Result};
 
@@ -285,7 +285,7 @@ impl ReplayWindow {
     /// Returns `Ok(())` if this counter is fresh, or a `ReplayDetected`
     /// error if we have already seen it.
     pub fn check_and_update(&mut self, counter: u64) -> Result<()> {
-        if counter + WINDOW_SIZE < self.top {
+        if counter + WINDOW_SIZE <= self.top {
             return Err(CoreError::ReplayDetected {
                 counter,
                 floor: self.top.saturating_sub(WINDOW_SIZE),
@@ -370,10 +370,11 @@ mod tests {
     #[test]
     fn replay_window_basic() {
         let mut win = ReplayWindow::new();
-        assert!(win.check_and_update(1).is_ok());
-        assert!(win.check_and_update(1).is_err()); // duplicate
-        assert!(win.check_and_update(2).is_ok());
-        assert!(win.check_and_update(0).is_err()); // too old
+        assert!(win.check_and_update(150).is_ok());
+        assert!(win.check_and_update(150).is_err()); // duplicate
+        assert!(win.check_and_update(151).is_ok());
+        assert!(win.check_and_update(23).is_err());  // too old (151 - 128 = 23)
+        assert!(win.check_and_update(24).is_ok());   // floor (151 - 127 = 24)
     }
 
     #[test]

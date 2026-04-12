@@ -16,7 +16,7 @@ use std::{
 };
 
 use boringtun::noise::{Tunn, TunnResult};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use ipnetwork::IpNetwork;
 use tokio::{
     net::UdpSocket,

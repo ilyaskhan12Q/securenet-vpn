@@ -222,7 +222,7 @@ The fastest path to a running stack:
 
 ```sh
 # 1. Clone the repository
-git clone https://github.com/yourorg/securenet-vpn.git
+git clone https://github.com/ilyaskhan12Q/securenet-vpn.git
 cd securenet-vpn
 
 # 2. Copy and edit environment variables
