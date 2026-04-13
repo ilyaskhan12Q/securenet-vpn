@@ -31,6 +31,7 @@ use securenet_core::{
     config::ServerConfig,
     crypto::KeyPair,
     tunnel::Tunnel,
+    tun_device::TunDevice,
 };
 
 // ---------------------------------------------------------------------------
@@ -134,12 +135,22 @@ async fn main() -> Result<()> {
         .with_context(|| format!("Failed to load config from {:?}", cli.config))?;
 
     // --- Key pair ---
-    let key_pair = KeyPair::generate(); // In production: load from cfg.interface.private_key
+    let key_pair = KeyPair::from_private_key_base64(&cfg.interface.private_key)
+        .context("Invalid interface private_key")?;
     info!(
         pub_key = %key_pair.public.to_base64(),
         listen = %cfg.interface.listen_addr,
         "Interface initialised"
     );
+
+    // --- TUN device ---
+    let tun = TunDevice::create(
+        &cfg.interface.tun_name,
+        &cfg.interface.address,
+        cfg.interface.mtu,
+    )
+    .context("Failed to create TUN device")?;
+    info!(tun = %tun.name(), "TUN device created");
 
     // --- Tunnel ---
     let tunnel = Tunnel::start(key_pair, cfg.interface.listen_addr, cfg.peers.clone())
@@ -172,12 +183,35 @@ async fn main() -> Result<()> {
         let _ = shutdown_tx.send(true);
     });
 
-    // --- Main data-plane loop ---
-    let tunnel_clone = tunnel.clone();
-    let metrics_clone = metrics.clone();
-    let data_plane = tokio::spawn(async move {
+    // --- Main data-plane loops ---
+    let tun_rx = tun.clone();
+    let tunnel_tx = tunnel.clone();
+    let tun_to_net = tokio::spawn(async move {
+        let mut buf = vec![0u8; securenet_core::crypto::MAX_PACKET];
         loop {
-            match tunnel_clone.recv_packet().await {
+            match tun_rx.recv(&mut buf).await {
+                Ok(n) => {
+                    if n == 0 {
+                        continue;
+                    }
+                    if let Err(e) = tunnel_tx.send_packet(&buf[..n]).await {
+                        warn!(err = %e, "Failed to send packet to peer");
+                    }
+                }
+                Err(e) => {
+                    warn!(err = %e, "TUN recv error");
+                    time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        }
+    });
+
+    let tun_tx = tun.clone();
+    let tunnel_rx = tunnel.clone();
+    let metrics_clone = metrics.clone();
+    let net_to_tun = tokio::spawn(async move {
+        loop {
+            match tunnel_rx.recv_packet().await {
                 Ok((pkt, peer_key)) => {
                     let peer_hex = hex::encode(&peer_key[..4]);
                     metrics_clone
@@ -188,8 +222,9 @@ async fn main() -> Result<()> {
                         .bytes_rx
                         .with_label_values(&[&peer_hex])
                         .inc_by(pkt.len() as f64);
-                    // In a full implementation: write `pkt` to the TUN device
-                    // via `tun::AsyncDevice::send`.
+                    if let Err(e) = tun_tx.send(&pkt).await {
+                        warn!(err = %e, "Failed to write packet to TUN");
+                    }
                     trace_packet(&pkt);
                 }
                 Err(e) => {
@@ -203,7 +238,8 @@ async fn main() -> Result<()> {
     shutdown_rx.changed().await.ok();
 
     // Cancel data plane
-    data_plane.abort();
+    tun_to_net.abort();
+    net_to_tun.abort();
 
     // Run post-down hooks
     run_hooks(&cfg.interface.post_down, "post-down").await;

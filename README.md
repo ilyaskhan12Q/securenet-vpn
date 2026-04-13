@@ -210,6 +210,8 @@ securenet-vpn/
 | PostgreSQL | >= 15 | Required for `securenet-api` |
 | Docker + Compose | >= 24 + 2.24 | Optional; for the full containerised stack |
 | wireguard-tools | any | Optional; for the `wg` utility and `scripts/generate-keys.sh` |
+| Admin privileges | — | Required to create TUN devices on Linux/Windows |
+| Wintun (Windows) | latest | `wintun.dll` must be available next to the `sn` binary |
 
 The `securenet-core` and `securenet-client` crates compile and run on Linux,
 macOS, and Windows (userspace WireGuard path only on non-Linux platforms).
@@ -401,7 +403,9 @@ sn up --endpoint 198.51.100.1:51820   # Override server endpoint
 ```
 
 Connects to the VPN server defined in `[server]`, applies the kill-switch if
-`kill_switch = true`, and blocks until `Ctrl-C` or `sn down`.
+`kill_switch = true`, and blocks until `Ctrl-C` or `sn down`. This command
+creates a TUN device and runs the full data plane in the terminal, so it must
+be executed with sufficient privileges.
 
 ### sn keygen
 

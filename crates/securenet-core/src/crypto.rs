@@ -336,6 +336,13 @@ impl KeyPair {
         let public = private.public_key();
         Self { private, public }
     }
+
+    /// Construct a key-pair from a Base64-encoded private key.
+    pub fn from_private_key_base64(b64: &str) -> Result<Self> {
+        let private = PrivateKey::from_base64(b64)?;
+        let public = private.public_key();
+        Ok(Self { private, public })
+    }
 }
 
 // ---------------------------------------------------------------------------

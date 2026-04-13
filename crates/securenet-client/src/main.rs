@@ -18,6 +18,7 @@ use securenet_core::{
     config::ClientConfig,
     crypto::{KeyPair, PeerPublicKey},
     tunnel::Tunnel,
+    tun_device::TunDevice,
 };
 
 // ---------------------------------------------------------------------------
@@ -132,11 +133,19 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
     );
 
     // Load our key pair
-    let key_pair = securenet_core::crypto::KeyPair::generate();
-    // In production: load from cfg.interface.private_key
+    let key_pair = KeyPair::from_private_key_base64(&cfg.interface.private_key)
+        .context("Invalid interface private_key")?;
+
+    let tun = TunDevice::create(
+        &cfg.interface.tun_name,
+        &cfg.interface.address,
+        cfg.interface.mtu,
+    )
+    .context("Failed to create TUN device")?;
+    info!(tun = %tun.name(), "TUN device created");
 
     // Start the tunnel
-    let _tunnel = Tunnel::start(
+    let tunnel = Tunnel::start(
         key_pair,
         cfg.interface.listen_addr,
         vec![server_peer],
@@ -145,6 +154,47 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
     .context("Failed to start tunnel")?;
 
     info!("VPN tunnel established");
+
+    // TUN -> WireGuard
+    let tun_rx = tun.clone();
+    let tunnel_tx = tunnel.clone();
+    let tun_to_net = tokio::spawn(async move {
+        let mut buf = vec![0u8; securenet_core::crypto::MAX_PACKET];
+        loop {
+            match tun_rx.recv(&mut buf).await {
+                Ok(n) => {
+                    if n == 0 {
+                        continue;
+                    }
+                    if let Err(e) = tunnel_tx.send_packet(&buf[..n]).await {
+                        error!(err = %e, "Failed to send packet to peer");
+                    }
+                }
+                Err(e) => {
+                    error!(err = %e, "TUN recv error");
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+            }
+        }
+    });
+
+    // WireGuard -> TUN
+    let tun_tx = tun.clone();
+    let tunnel_rx = tunnel.clone();
+    let net_to_tun = tokio::spawn(async move {
+        loop {
+            match tunnel_rx.recv_packet().await {
+                Ok((pkt, _peer_key)) => {
+                    if let Err(e) = tun_tx.send(&pkt).await {
+                        error!(err = %e, "Failed to write packet to TUN");
+                    }
+                }
+                Err(e) => {
+                    error!(err = %e, "Packet receive error");
+                }
+            }
+        }
+    });
 
     // Apply kill-switch if configured (Linux: default route via tunnel)
     if cfg.kill_switch {
@@ -155,6 +205,8 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
     tokio::signal::ctrl_c().await?;
 
     info!("Disconnecting…");
+    tun_to_net.abort();
+    net_to_tun.abort();
     if cfg.kill_switch {
         remove_kill_switch(&cfg.interface.tun_name).await?;
     }
@@ -305,6 +357,7 @@ async fn cmd_connect(config_path: &PathBuf, api_url: &str, token: &str) -> Resul
 // Kill-switch helpers (Linux iptables)
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "linux")]
 async fn apply_kill_switch(tun_name: &str) -> Result<()> {
     info!(%tun_name, "Applying kill-switch");
     let rules = vec![
@@ -317,6 +370,7 @@ async fn apply_kill_switch(tun_name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 async fn remove_kill_switch(tun_name: &str) -> Result<()> {
     info!(%tun_name, "Removing kill-switch");
     let rules = vec![
@@ -329,6 +383,7 @@ async fn remove_kill_switch(tun_name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 async fn run_cmd(prog: &str, args: &[&str]) -> Result<()> {
     let status = tokio::process::Command::new(prog)
         .args(args)
@@ -338,5 +393,16 @@ async fn run_cmd(prog: &str, args: &[&str]) -> Result<()> {
     if !status.success() {
         anyhow::bail!("Command failed with {:?}", status.code());
     }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn apply_kill_switch(_tun_name: &str) -> Result<()> {
+    info!("Kill-switch is currently supported only on Linux");
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn remove_kill_switch(_tun_name: &str) -> Result<()> {
     Ok(())
 }

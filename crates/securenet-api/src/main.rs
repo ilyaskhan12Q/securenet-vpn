@@ -9,7 +9,6 @@
 //!   GET    /readyz                   — readiness probe (checks DB)
 
 use std::{path::PathBuf, time::Instant};
-use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ use tower_http::{
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use securenet_core::config::ServerConfig;
+use securenet_core::{config::ServerConfig, crypto::KeyPair};
 
 pub mod handlers;
 pub mod middleware;
@@ -94,7 +93,10 @@ async fn main() -> Result<()> {
 
     // --- Derive server public key from private ---
     // In production: parse cfg.interface.private_key and derive public key.
-    let server_pub_key = "SERVER_PUB_KEY_PLACEHOLDER".to_string();
+    let server_pub_key = KeyPair::from_private_key_base64(&cfg.interface.private_key)
+        .context("Invalid interface private_key")?
+        .public
+        .to_base64();
 
     let state = AppState {
         config: cfg.clone(),

@@ -24,7 +24,7 @@ tokio-util     = { version = "0.7", features = ["codec"] }
 boringtun      = { version = "0.6" }
 
 # TUN interface abstraction
-tun            = { version = "0.6", features = ["async"] }
+tun            = { version = "0.8", features = ["async"] }
 
 # Cryptography
 ring           = "0.17"
