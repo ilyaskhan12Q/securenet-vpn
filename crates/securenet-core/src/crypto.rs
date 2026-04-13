@@ -190,8 +190,7 @@ impl PreSharedKey {
 /// Encrypt `plaintext` under `key` with a random 96-bit nonce.
 /// Returns `nonce || ciphertext || tag` concatenated.
 pub fn aead_seal(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher = ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| CoreError::EncryptionFailed)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| CoreError::EncryptionFailed)?;
     let nonce = ChaCha20Poly1305::generate_nonce(&mut AeadOsRng);
     let ct = cipher
         .encrypt(&nonce, plaintext)
@@ -208,8 +207,7 @@ pub fn aead_open(key: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>> {
         return Err(CoreError::DecryptionFailed);
     }
     let (nonce_bytes, ct) = blob.split_at(NONCE_LEN);
-    let cipher = ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| CoreError::DecryptionFailed)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| CoreError::DecryptionFailed)?;
     let nonce = Nonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, ct)
@@ -221,13 +219,13 @@ pub fn aead_open(key: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>> {
 // ---------------------------------------------------------------------------
 
 use blake2::Blake2s256;
-use hmac::{SimpleHmac, Mac};
+use hmac::{Mac, SimpleHmac};
 type HmacBlake2s = SimpleHmac<Blake2s256>;
 
 /// Single-step HMAC-Blake2s: compute HMAC(key, data).
 pub fn hmac_blake2s(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let mut mac =
-        <HmacBlake2s as hmac::digest::KeyInit>::new_from_slice(key).expect("HMAC accepts any key length");
+    let mut mac = <HmacBlake2s as hmac::digest::KeyInit>::new_from_slice(key)
+        .expect("HMAC accepts any key length");
     mac.update(data);
     let result = mac.finalize().into_bytes();
     let mut arr = [0u8; 32];
@@ -276,10 +274,7 @@ const WINDOW_SIZE: u64 = 128;
 
 impl ReplayWindow {
     pub fn new() -> Self {
-        Self {
-            top: 0,
-            window: 0,
-        }
+        Self { top: 0, window: 0 }
     }
 
     /// Returns `Ok(())` if this counter is fresh, or a `ReplayDetected`
@@ -380,8 +375,8 @@ mod tests {
         assert!(win.check_and_update(150).is_ok());
         assert!(win.check_and_update(150).is_err()); // duplicate
         assert!(win.check_and_update(151).is_ok());
-        assert!(win.check_and_update(23).is_err());  // too old (151 - 128 = 23)
-        assert!(win.check_and_update(24).is_ok());   // floor (151 - 127 = 24)
+        assert!(win.check_and_update(23).is_err()); // too old (151 - 128 = 23)
+        assert!(win.check_and_update(24).is_ok()); // floor (151 - 127 = 24)
     }
 
     #[test]

@@ -238,14 +238,13 @@ impl Tunnel {
         match result {
             TunnResult::Done => Ok(()),
             TunnResult::Err(e) => Err(CoreError::HandshakeFailed(format!("{:?}", e))),
-            TunnResult::WriteToNetwork(data) => {
-                self.0
-                    .socket
-                    .send_to(data, endpoint)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| CoreError::TunnelIo { source: e })
-            }
+            TunnResult::WriteToNetwork(data) => self
+                .0
+                .socket
+                .send_to(data, endpoint)
+                .await
+                .map(|_| ())
+                .map_err(|e| CoreError::TunnelIo { source: e }),
             TunnResult::WriteToTunnelV4(_, _) | TunnResult::WriteToTunnelV6(_, _) => {
                 // Unexpected: we were encrypting, not decrypting
                 warn!("Unexpected WriteToTunnel while encapsulating");
@@ -298,7 +297,8 @@ impl Tunnel {
                         matched_key = Some(*key);
                         break;
                     }
-                    TunnResult::WriteToTunnelV4(plain, _) | TunnResult::WriteToTunnelV6(plain, _) => {
+                    TunnResult::WriteToTunnelV4(plain, _)
+                    | TunnResult::WriteToTunnelV6(plain, _) => {
                         let inner = Bytes::copy_from_slice(plain);
                         // Update last-seen timestamp
                         *session.last_rx.lock().await = std::time::Instant::now();

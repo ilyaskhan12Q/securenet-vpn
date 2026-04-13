@@ -7,31 +7,19 @@
 //!   - Exposes Prometheus metrics on a separate port.
 //!   - Handles SIGINT / SIGTERM gracefully (post-down hooks, flush peers).
 
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use prometheus::{
-    register_counter_vec, register_histogram_vec, CounterVec, HistogramVec,
-    TextEncoder, Encoder,
+    register_counter_vec, register_histogram_vec, CounterVec, Encoder, HistogramVec, TextEncoder,
 };
-use tokio::{
-    signal,
-    sync::watch,
-    time,
-};
+use tokio::{signal, sync::watch, time};
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use securenet_core::{
-    config::ServerConfig,
-    crypto::KeyPair,
-    tunnel::Tunnel,
-    tun_device::TunDevice,
+    config::ServerConfig, crypto::KeyPair, tun_device::TunDevice, tunnel::Tunnel,
 };
 
 // ---------------------------------------------------------------------------
@@ -46,7 +34,12 @@ use securenet_core::{
 )]
 struct Cli {
     /// Path to the TOML configuration file.
-    #[arg(short, long, default_value = "/etc/securenet/server.toml", env = "SECURENET_CONFIG")]
+    #[arg(
+        short,
+        long,
+        default_value = "/etc/securenet/server.toml",
+        env = "SECURENET_CONFIG"
+    )]
     config: PathBuf,
 
     /// Override log level (e.g. debug, info, warn).
@@ -128,7 +121,10 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
-    info!(version = env!("CARGO_PKG_VERSION"), "SecureNet server starting");
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "SecureNet server starting"
+    );
 
     // --- Config ---
     let cfg = ServerConfig::from_file(&cli.config)

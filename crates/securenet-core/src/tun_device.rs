@@ -46,8 +46,7 @@ impl TunDevice {
             });
         }
 
-        let dev = tun::create_as_async(&config)
-            .map_err(|e| CoreError::TunDevice(e.to_string()))?;
+        let dev = tun::create_as_async(&config).map_err(|e| CoreError::TunDevice(e.to_string()))?;
 
         Ok(Self {
             name: tun_name.to_string(),

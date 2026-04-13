@@ -1,8 +1,12 @@
 # ~/.config/securenet/client.toml
 # SecureNet VPN Client Configuration
 # ---------------------------------------------------------------------------
-# Generate your key pair first:  sn keygen
-# Then give your public_key to the server administrator to add as a peer.
+# Recommended: let the API provision this file automatically:
+#   sn init --api-url https://api.example.com
+# or:
+#   sn connect --api-url https://api.example.com
+#
+# Manual editing is mainly for development or recovery scenarios.
 # ---------------------------------------------------------------------------
 
 [interface]

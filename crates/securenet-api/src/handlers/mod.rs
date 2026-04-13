@@ -7,11 +7,24 @@ use axum::{
     Json,
 };
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashSet,
+    net::Ipv4Addr,
+    sync::atomic::{AtomicU16, Ordering},
+};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::AppState;
+
+static NEXT_TUNNEL_HOST: AtomicU16 = AtomicU16::new(2);
+const SERVER_US_EAST_ID: &str = "11111111-1111-4111-8111-111111111111";
+const SERVER_UK_LONDON_ID: &str = "22222222-2222-4222-8222-222222222222";
+const SERVER_DE_FRANKFURT_ID: &str = "33333333-3333-4333-8333-333333333333";
+const SERVER_SG_SINGAPORE_ID: &str = "44444444-4444-4444-8444-444444444444";
+const PROVISIONING_USER: &str = "api-provisioning-user";
 
 // ---------------------------------------------------------------------------
 // JWT
@@ -113,7 +126,7 @@ pub async fn auth_device(
 // Server-list handler
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ServerEntry {
     pub id: Uuid,
     pub name: String,
@@ -127,14 +140,26 @@ pub struct ServerEntry {
     pub plan: String, // "free" or "premium"
 }
 
-/// `GET /v1/servers`
-///
-/// Return the list of available VPN servers with load information.
-pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
-    // In production: query a servers table from the database.
-    let servers: Vec<ServerEntry> = vec![
+#[derive(sqlx::FromRow)]
+struct DbServerRow {
+    id: Uuid,
+    name: String,
+    country_code: String,
+    city: String,
+    endpoint: String,
+    public_key: String,
+    load_percent: i16,
+    features: Vec<String>,
+}
+
+fn sample_servers(state: &AppState) -> Vec<ServerEntry> {
+    fn fixed_uuid(s: &str) -> Uuid {
+        Uuid::parse_str(s).expect("static UUID must be valid")
+    }
+
+    vec![
         ServerEntry {
-            id: Uuid::new_v4(),
+            id: fixed_uuid(SERVER_US_EAST_ID),
             name: "US-East-01".to_string(),
             country: "US".to_string(),
             city: "New York".to_string(),
@@ -146,7 +171,7 @@ pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
             plan: "free".to_string(),
         },
         ServerEntry {
-            id: Uuid::new_v4(),
+            id: fixed_uuid(SERVER_UK_LONDON_ID),
             name: "UK-London-01".to_string(),
             country: "UK".to_string(),
             city: "London".to_string(),
@@ -158,7 +183,7 @@ pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
             plan: "premium".to_string(),
         },
         ServerEntry {
-            id: Uuid::new_v4(),
+            id: fixed_uuid(SERVER_DE_FRANKFURT_ID),
             name: "DE-Frankfurt-01".to_string(),
             country: "DE".to_string(),
             city: "Frankfurt".to_string(),
@@ -170,7 +195,7 @@ pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
             plan: "free".to_string(),
         },
         ServerEntry {
-            id: Uuid::new_v4(),
+            id: fixed_uuid(SERVER_SG_SINGAPORE_ID),
             name: "SG-Singapore-01".to_string(),
             country: "SG".to_string(),
             city: "Singapore".to_string(),
@@ -181,8 +206,300 @@ pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
             features: vec!["wireguard".to_string(), "gaming-opt".to_string()],
             plan: "premium".to_string(),
         },
-    ];
+    ]
+}
+
+fn map_server_row(row: DbServerRow) -> ServerEntry {
+    let is_premium = row.features.iter().any(|f| f == "premium");
+    ServerEntry {
+        id: row.id,
+        name: row.name,
+        country: row.country_code,
+        city: row.city,
+        endpoint: row.endpoint,
+        public_key: row.public_key,
+        load_percent: u8::try_from(row.load_percent.clamp(0, 100)).unwrap_or(0),
+        latency_ms: None,
+        features: row.features,
+        plan: if is_premium {
+            "premium".to_string()
+        } else {
+            "free".to_string()
+        },
+    }
+}
+
+async fn list_servers_from_db(state: &AppState) -> Result<Vec<ServerEntry>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, DbServerRow>(
+        r#"
+        SELECT
+            id,
+            name,
+            country_code,
+            city,
+            endpoint,
+            public_key,
+            load_percent,
+            features
+        FROM servers
+        WHERE online = TRUE
+        ORDER BY load_percent ASC, updated_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(rows.into_iter().map(map_server_row).collect())
+}
+
+/// `GET /v1/servers`
+///
+/// Return the list of available VPN servers with load information.
+pub async fn list_servers(State(state): State<AppState>) -> impl IntoResponse {
+    let servers = match list_servers_from_db(&state).await {
+        Ok(rows) if !rows.is_empty() => rows,
+        Ok(_) => {
+            warn!("No online servers in DB, falling back to sample servers");
+            sample_servers(&state)
+        }
+        Err(err) => {
+            warn!(%err, "Failed to load servers from DB, falling back to sample servers");
+            sample_servers(&state)
+        }
+    };
     (StatusCode::OK, Json(servers))
+}
+
+#[derive(Deserialize)]
+pub struct ProvisionRequest {
+    pub client_public_key: String,
+    pub server_id: Option<Uuid>,
+    pub device_name: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProvisionResponse {
+    pub server_public_key: String,
+    pub server_endpoint: String,
+    pub tunnel_ip: String,
+    pub pre_shared_key: Option<String>,
+    pub persistent_keepalive: Option<u16>,
+}
+
+async fn pick_server_for_provision(
+    state: &AppState,
+    server_id: Option<Uuid>,
+) -> Option<ServerEntry> {
+    match list_servers_from_db(state).await {
+        Ok(rows) if !rows.is_empty() => {
+            if let Some(id) = server_id {
+                rows.into_iter().find(|s| s.id == id)
+            } else {
+                rows.into_iter().next()
+            }
+        }
+        Ok(_) => {
+            warn!("No online servers in DB for provisioning, using sample fallback");
+            let sample = sample_servers(state);
+            if let Some(id) = server_id {
+                sample.into_iter().find(|s| s.id == id)
+            } else {
+                sample.into_iter().next()
+            }
+        }
+        Err(err) => {
+            warn!(%err, "Failed to query DB servers for provisioning, using sample fallback");
+            let sample = sample_servers(state);
+            if let Some(id) = server_id {
+                sample.into_iter().find(|s| s.id == id)
+            } else {
+                sample.into_iter().next()
+            }
+        }
+    }
+}
+
+async fn allocate_tunnel_ip_for_device(state: &AppState, interface_cidr: &str) -> String {
+    let prefix = interface_cidr
+        .split_once('/')
+        .map(|(_, p)| p)
+        .unwrap_or("24");
+
+    let net_base = interface_cidr
+        .split_once('/')
+        .map(|(ip, _)| ip)
+        .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
+        .unwrap_or(Ipv4Addr::new(10, 0, 0, 1))
+        .octets();
+
+    let existing_ips = sqlx::query_scalar::<_, String>(
+        "SELECT host(tunnel_ip) FROM devices WHERE deleted_at IS NULL AND tunnel_ip IS NOT NULL",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let mut used = HashSet::new();
+    for ip in existing_ips {
+        if let Ok(addr) = ip.parse::<Ipv4Addr>() {
+            let oct = addr.octets();
+            if oct[0] == net_base[0] && oct[1] == net_base[1] && oct[2] == net_base[2] {
+                used.insert(oct[3]);
+            }
+        }
+    }
+
+    for host in 2u8..=254u8 {
+        if !used.contains(&host) {
+            return format!(
+                "{}.{}.{}.{}/{}",
+                net_base[0], net_base[1], net_base[2], host, prefix
+            );
+        }
+    }
+
+    allocate_tunnel_ip(interface_cidr)
+}
+
+async fn ensure_provisioning_user(state: &AppState) -> Result<Uuid, sqlx::Error> {
+    if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1",
+    )
+    .bind(PROVISIONING_USER)
+    .fetch_optional(&state.db)
+    .await?
+    {
+        return Ok(id);
+    }
+
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO users (username, password_hash, role, email)
+        VALUES ($1, 'provisioning-only', 'client', NULL)
+        ON CONFLICT (username)
+        DO UPDATE SET updated_at = NOW(), deleted_at = NULL
+        RETURNING id
+        "#,
+    )
+    .bind(PROVISIONING_USER)
+    .fetch_one(&state.db)
+    .await
+}
+
+async fn upsert_device_registration(
+    state: &AppState,
+    name: &str,
+    public_key: &str,
+    tunnel_ip: &str,
+    endpoint: &str,
+) -> Result<(), sqlx::Error> {
+    let user_id = ensure_provisioning_user(state).await?;
+    sqlx::query(
+        r#"
+        INSERT INTO devices (user_id, name, public_key, tunnel_ip, last_seen_endpoint)
+        VALUES ($1, $2, $3, $4::inet, $5)
+        ON CONFLICT (public_key)
+        DO UPDATE SET
+            name = EXCLUDED.name,
+            tunnel_ip = EXCLUDED.tunnel_ip,
+            last_seen_endpoint = EXCLUDED.last_seen_endpoint,
+            updated_at = NOW(),
+            deleted_at = NULL
+        "#,
+    )
+    .bind(user_id)
+    .bind(name)
+    .bind(public_key)
+    .bind(tunnel_ip)
+    .bind(endpoint)
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
+}
+
+/// `POST /v1/provision`
+///
+/// Register a client public key and return complete client-side tunnel settings.
+pub async fn provision_client(
+    State(state): State<AppState>,
+    Json(req): Json<ProvisionRequest>,
+) -> impl IntoResponse {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+
+    let decoded = B64.decode(&req.client_public_key);
+    match decoded {
+        Ok(bytes) if bytes.len() == 32 => {}
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid client public key"})),
+            )
+        }
+    }
+
+    let selected = match pick_server_for_provision(&state, req.server_id).await {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "no online servers available"})),
+            )
+        }
+    };
+
+    let tunnel_ip = allocate_tunnel_ip_for_device(&state, &state.config.interface.address).await;
+    let device_name = req
+        .device_name
+        .unwrap_or_else(|| "secure-device".to_string());
+
+    if let Err(err) = upsert_device_registration(
+        &state,
+        &device_name,
+        &req.client_public_key,
+        &tunnel_ip,
+        &selected.endpoint,
+    )
+    .await
+    {
+        warn!(
+            %err,
+            "Failed to persist device registration; continuing with volatile provisioning"
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!(ProvisionResponse {
+            server_public_key: selected.public_key,
+            server_endpoint: selected.endpoint,
+            tunnel_ip,
+            pre_shared_key: None,
+            persistent_keepalive: Some(25),
+        })),
+    )
+}
+
+fn allocate_tunnel_ip(interface_cidr: &str) -> String {
+    let host = NEXT_TUNNEL_HOST.fetch_add(1, Ordering::Relaxed);
+    let host_octet = u8::try_from((host % 250) + 2).unwrap_or(2);
+
+    let prefix = interface_cidr
+        .split_once('/')
+        .map(|(_, p)| p)
+        .unwrap_or("24");
+
+    let net_base = interface_cidr
+        .split_once('/')
+        .map(|(ip, _)| ip)
+        .and_then(|ip| ip.parse::<Ipv4Addr>().ok())
+        .unwrap_or(Ipv4Addr::new(10, 0, 0, 1))
+        .octets();
+
+    format!(
+        "{}.{}.{}.{}/{}",
+        net_base[0], net_base[1], net_base[2], host_octet, prefix
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +554,7 @@ pub async fn add_peer(
 /// `DELETE /v1/admin/peers/:public_key`  (admin-only)
 pub async fn remove_peer(
     State(_state): State<AppState>,
-    Path(public_key): Path<String>,
+    Path(_public_key): Path<String>,
 ) -> impl IntoResponse {
     // state.tunnel.remove_peer(&public_key).await?;
     (StatusCode::NO_CONTENT, Json(serde_json::json!({})))

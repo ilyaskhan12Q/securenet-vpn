@@ -54,7 +54,7 @@ pub async fn require_auth(
 
 /// Middleware that additionally requires the `admin` role.
 pub async fn require_admin(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     req: Request,
     next: Next,
 ) -> impl IntoResponse {

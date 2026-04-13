@@ -3,14 +3,13 @@
 //! Routes:
 //!   POST   /v1/auth/device           — device authentication, returns JWT
 //!   GET    /v1/servers               — list available VPN servers
+//!   POST   /v1/provision             — client provisioning (keys/endpoints/IP)
 //!   POST   /v1/admin/peers           — register a new peer (admin)
 //!   DELETE /v1/admin/peers/:pub_key  — remove a peer (admin)
 //!   GET    /healthz                  — liveness probe
-//!   GET    /readyz                   — readiness probe (checks DB)
 
-use std::{path::PathBuf, time::Instant};
-use std::net::SocketAddr;
 use std::sync::Arc;
+use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -51,9 +50,18 @@ pub struct AppState {
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "securenet-api", about = "SecureNet VPN control-plane API", version)]
+#[command(
+    name = "securenet-api",
+    about = "SecureNet VPN control-plane API",
+    version
+)]
 struct Cli {
-    #[arg(short, long, default_value = "/etc/securenet/server.toml", env = "SECURENET_CONFIG")]
+    #[arg(
+        short,
+        long,
+        default_value = "/etc/securenet/server.toml",
+        env = "SECURENET_CONFIG"
+    )]
     config: PathBuf,
 }
 
@@ -109,7 +117,8 @@ async fn main() -> Result<()> {
     let public_routes = Router::new()
         .route("/v1/auth/device", post(handlers::auth_device))
         .route("/healthz", get(handlers::healthz))
-        .route("/v1/servers", get(handlers::list_servers));
+        .route("/v1/servers", get(handlers::list_servers))
+        .route("/v1/provision", post(handlers::provision_client));
 
     let authenticated_routes = Router::new()
         .layer(axum_middleware::from_fn_with_state(

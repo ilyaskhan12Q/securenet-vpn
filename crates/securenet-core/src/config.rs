@@ -29,8 +29,8 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// Load configuration from a TOML file at `path`.
     pub fn from_file(path: &PathBuf) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| CoreError::ConfigParse(e.to_string()))?;
+        let raw =
+            std::fs::read_to_string(path).map_err(|e| CoreError::ConfigParse(e.to_string()))?;
         toml::from_str(&raw).map_err(|e| CoreError::ConfigParse(e.to_string()))
     }
 }
@@ -249,8 +249,8 @@ pub struct ClientConfig {
 
 impl ClientConfig {
     pub fn from_file(path: &PathBuf) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| CoreError::ConfigParse(e.to_string()))?;
+        let raw =
+            std::fs::read_to_string(path).map_err(|e| CoreError::ConfigParse(e.to_string()))?;
         toml::from_str(&raw).map_err(|e| CoreError::ConfigParse(e.to_string()))
     }
 }

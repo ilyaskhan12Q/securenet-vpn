@@ -129,7 +129,8 @@ client — is written in Rust.  The choice is deliberate:
   │                     │                    │
   │  securenet-api (control plane)  TCP 8080 │
   │    POST /v1/auth/device                  │
-  │    GET  /v1/servers (US, UK, DE, SG support)
+  │    GET  /v1/servers (DB-backed live registry)
+  │    POST /v1/provision (client provisioning)
   │    POST /v1/admin/peers                  │
   │    JWT middleware + RBAC                 │
   │    Rate limiter (per-IP token bucket)    │
@@ -381,6 +382,7 @@ The `sn` binary is the end-user VPN client.
 sn [OPTIONS] <COMMAND>
 
 Commands:
+  init      Bootstrap local client config via API provisioning
   up        Connect to the VPN server
   down      Disconnect
   status    Show connection status
@@ -407,6 +409,16 @@ Connects to the VPN server defined in `[server]`, applies the kill-switch if
 creates a TUN device and runs the full data plane in the terminal, so it must
 be executed with sufficient privileges.
 
+### sn init
+
+```sh
+export SECURENET_API_URL=https://api.example.com
+sn init --api-url "$SECURENET_API_URL"
+```
+
+Generates a fresh client key locally, sends only the public key to
+`POST /v1/provision`, and writes `~/.config/securenet/client.toml`.
+
 ### sn keygen
 
 ```sh
@@ -420,25 +432,27 @@ sn keygen
 
 ```sh
 export SECURENET_API_URL=https://api.example.com
-export SECURENET_TOKEN=$(cat ~/.securenet/token)
 sn servers
 ```
+
+`SECURENET_TOKEN` is optional in this build.
 
 ### sn connect
 
 ```sh
 export SECURENET_API_URL=https://api.example.com
-export SECURENET_TOKEN=$(cat ~/.securenet/token)
 sn connect
-# Opens an interactive menu to select a server and automatically configures the tunnel.
+# Interactive server selection, then API provisioning, then connect.
 ```
+
+`SECURENET_TOKEN` is optional in this build.
 
 ---
 
 ## API Reference
 
-All endpoints return `application/json`.  Authenticated endpoints require
-`Authorization: Bearer <token>` obtained from `/v1/auth/device`.
+All endpoints return `application/json`.
+`/v1/admin/*` endpoints require an authenticated admin token.
 
 ### POST /v1/auth/device
 
@@ -495,6 +509,35 @@ List available VPN exit nodes with load information.
 
 ---
 
+### POST /v1/provision
+
+Provision a client after local key generation. The client submits only its
+public key and selected server ID; private key never leaves the device.
+
+**Request:**
+
+```json
+{
+  "client_public_key": "BASE64_CLIENT_PUBLIC_KEY",
+  "server_id": "11111111-1111-4111-8111-111111111111",
+  "device_name": "alice-laptop"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "server_public_key": "BASE64_SERVER_PUBLIC_KEY",
+  "server_endpoint": "203.0.113.10:51820",
+  "tunnel_ip": "10.0.0.42/24",
+  "pre_shared_key": null,
+  "persistent_keepalive": 25
+}
+```
+
+---
+
 ### POST /v1/admin/peers  (admin role required)
 
 Register a new WireGuard peer at runtime (hot-reload, no server restart).
@@ -537,7 +580,7 @@ Liveness probe.  Returns 200 when the process is running.
 ```json
 {
   "status":       "ok",
-  "version":      "0.1.0",
+  "version":      "1.2.0",
   "uptime_secs":  3600
 }
 ```
