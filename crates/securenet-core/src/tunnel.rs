@@ -8,6 +8,7 @@
 //!     egress) and one reading from a UDP socket (encrypted ingress).
 //!   - Handles WireGuard timer events (keepalives, re-keying) internally.
 
+use socket2::{Domain, Protocol, Socket, Type};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -119,8 +120,30 @@ impl Tunnel {
         listen_addr: SocketAddr,
         peers: Vec<PeerConfig>,
     ) -> Result<Self> {
-        let socket = UdpSocket::bind(listen_addr)
-            .await
+        let domain = if listen_addr.is_ipv4() {
+            Domain::IPV4
+        } else {
+            Domain::IPV6
+        };
+        let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
+            .map_err(|e| CoreError::TunDevice(format!("failed to create UDP socket: {}", e)))?;
+
+        #[cfg(target_os = "linux")]
+        {
+            // Set SO_MARK to bypass kill-switch rules (0xCAFE = 51966)
+            if let Err(e) = socket.set_mark(0xCAFE) {
+                warn!(err = %e, "Failed to set SO_MARK on socket; kill-switch might block traffic");
+            } else {
+                debug!("Set SO_MARK 0xCAFE on tunnel socket");
+            }
+        }
+
+        socket.set_nonblocking(true)
+            .map_err(|e| CoreError::TunDevice(format!("failed to set non-blocking: {}", e)))?;
+        socket.bind(&listen_addr.into())
+            .map_err(|e| CoreError::TunDevice(format!("failed to bind socket: {}", e)))?;
+
+        let socket = UdpSocket::from_std(socket.into())
             .map_err(|e| CoreError::TunDevice(e.to_string()))?;
 
         info!(

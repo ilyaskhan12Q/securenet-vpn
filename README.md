@@ -580,7 +580,7 @@ Liveness probe.  Returns 200 when the process is running.
 ```json
 {
   "status":       "ok",
-  "version":      "1.2.0",
+  "version":      "1.2.1",
   "uptime_secs":  3600
 }
 ```
@@ -710,8 +710,15 @@ iptables  -I OUTPUT ! -o wg0 -m mark ! --mark 0xCAFE -j DROP
 ip6tables -I OUTPUT ! -o wg0 -m mark ! --mark 0xCAFE -j DROP
 ```
 
-The WireGuard UDP socket itself is fwmarked `0xCAFE` so it can still reach
-the server endpoint to re-establish the tunnel.
+The WireGuard UDP socket itself is automatically fwmarked `0xCAFE` (v1.2.1+) so it can still reach
+the server endpoint to re-establish the tunnel even while the kill-switch is active.
+
+### Automatic Routing & DNS (v1.2.1+)
+
+On Linux, the client now automatically:
+- Fixes routing loops by pinning a route to the server via your original gateway.
+- Redirects all system traffic through the tunnel using the `0.0.0.0/1` and `128.0.0.0/1` trick.
+- Configures `/etc/resolv.conf` with the VPN's DNS servers (with backup/restore).
 
 Rules are removed automatically on `sn down` or when the process exits.
 

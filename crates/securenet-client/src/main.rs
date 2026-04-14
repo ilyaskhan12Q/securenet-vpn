@@ -87,6 +87,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Start the VPN server running headless, using the provided configuration file.
+    Start,
     /// Bootstrap client config from API provisioning (no manual config edits).
     Init {
         /// API base URL.
@@ -102,7 +104,7 @@ enum Command {
         #[arg(long)]
         device_name: Option<String>,
     },
-    /// Connect to the VPN server.
+    /// Connect to the VPN server (legacy alias for up).
     Up {
         /// Override server endpoint (host:port).
         #[arg(long)]
@@ -177,6 +179,7 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
+        Command::Start => cmd_up(&cli.config, None).await,
         Command::Init {
             api_url,
             token,
@@ -424,6 +427,12 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
     .context("Failed to create TUN device")?;
     info!(tun = %tun.name(), "TUN device created");
 
+    // Extract server IP for routing later
+    let server_ip = server_peer.endpoint
+        .as_ref()
+        .map(|e| e.ip().to_string())
+        .context("Server endpoint is missing")?;
+
     // Start the tunnel
     let tunnel = Tunnel::start(key_pair, cfg.interface.listen_addr, vec![server_peer])
         .await
@@ -476,11 +485,24 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
         apply_kill_switch(&cfg.interface.tun_name).await?;
     }
 
+    // Apply system routing and DNS
+    let _sys_config = apply_system_config(
+        &cfg.interface.tun_name,
+        &server_ip,
+        &cfg.interface.dns
+    ).await?;
+
+    info!("System routing and DNS updated");
+
     tokio::signal::ctrl_c().await?;
 
     info!("Disconnecting…");
     tun_to_net.abort();
     net_to_tun.abort();
+
+    // Cleanup
+    let _ = cleanup_system_config(&cfg.interface.tun_name, &server_ip).await;
+
     if cfg.kill_switch {
         remove_kill_switch(&cfg.interface.tun_name).await?;
     }
@@ -635,6 +657,76 @@ async fn remove_kill_switch(tun_name: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
+async fn get_default_gateway_linux() -> Result<(String, String)> {
+    let output = tokio::process::Command::new("ip")
+        .args(&["-4", "route", "show", "default"])
+        .output()
+        .await
+        .context("Failed to run 'ip route'")?;
+    let s = String::from_utf8_lossy(&output.stdout);
+    let line = s.lines().next().context("No default route found")?;
+    let parts: Vec<&str> = line.split_whitespace().collect();
+
+    let gw = parts.iter().position(|&r| r == "via")
+        .and_then(|i| parts.get(i + 1))
+        .context("Could not find gateway in default route")?;
+    let iface = parts.iter().position(|&r| r == "dev")
+        .and_then(|i| parts.get(i + 1))
+        .context("Could not find interface in default route")?;
+
+    Ok((gw.to_string(), iface.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+async fn apply_system_config(tun_name: &str, server_ip: &str, dns_servers: &[String]) -> Result<(String, String)> {
+    let (gw, iface) = get_default_gateway_linux().await?;
+    info!(%gw, %iface, "Found default gateway");
+
+    // 1. Specific route to VPN server via original gateway to avoid routing loops
+    let _ = run_cmd("ip", &["route", "add", server_ip, "via", &gw, "dev", &iface]).await;
+
+    // 2. Default routes via TUN (using 0.0.0.0/1 and 128.0.0.0/1)
+    run_cmd("ip", &["route", "add", "0.0.0.0/1", "dev", tun_name]).await?;
+    run_cmd("ip", &["route", "add", "128.0.0.0/1", "dev", tun_name]).await?;
+
+    // 3. DNS
+    if !dns_servers.is_empty() {
+        let mut resolv = String::new();
+        for dns in dns_servers {
+            resolv.push_str(&format!("nameserver {}\n", dns));
+        }
+        let _ = run_cmd("cp", &["/etc/resolv.conf", "/etc/resolv.conf.bak"]).await;
+        let _ = tokio::fs::write("/etc/resolv.conf", resolv).await;
+    }
+
+    Ok((gw, iface))
+}
+
+#[cfg(target_os = "linux")]
+async fn cleanup_system_config(tun_name: &str, server_ip: &str) -> Result<()> {
+    info!("Cleaning up system routing and DNS");
+    let _ = run_cmd("ip", &["route", "del", server_ip]).await;
+    let _ = run_cmd("ip", &["route", "del", "0.0.0.0/1", "dev", tun_name]).await;
+    let _ = run_cmd("ip", &["route", "del", "128.0.0.0/1", "dev", tun_name]).await;
+
+    if tokio::fs::metadata("/etc/resolv.conf.bak").await.is_ok() {
+        let _ = run_cmd("mv", &["/etc/resolv.conf.bak", "/etc/resolv.conf"]).await;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn apply_system_config(_tun_name: &str, _server_ip: &str, _dns_servers: &[String]) -> Result<(String, String)> {
+    info!("System routing configuration is currently supported only on Linux");
+    Ok((String::new(), String::new()))
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn cleanup_system_config(_tun_name: &str, _server_ip: &str) -> Result<()> {
+    Ok(())
+}
+
 async fn run_cmd(prog: &str, args: &[&str]) -> Result<()> {
     let status = tokio::process::Command::new(prog)
         .args(args)

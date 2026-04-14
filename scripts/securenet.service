@@ -1,0 +1,25 @@
+[Unit]
+Description=SecureNet VPN Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Load the configuration from the standard location
+Environment=SECURENET_CLIENT_CONFIG=/etc/securenet/client.toml
+
+# Start the VPN client in headless mode
+ExecStart=/usr/local/bin/sn start
+
+# Restart on failure, with a progressive backoff
+Restart=on-failure
+RestartSec=5
+
+# Enhance security
+ProtectSystem=full
+ProtectHome=read-only
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SETUID CAP_SETGID
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
