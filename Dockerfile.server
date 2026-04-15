@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Builder
 # ---------------------------------------------------------------------------
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 # Install system dependencies required to compile networking crates.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,10 +32,10 @@ RUN mkdir -p crates/securenet-core/src \
     echo "fn main() {}"      > crates/securenet-api/src/main.rs && \
     echo "fn main() {}"      > crates/securenet-client/src/main.rs
 
-RUN cargo build --release -p securenet-server 2>&1 | tail -5
+RUN cargo build --release -p securenet-server
 
 # Remove the stubs and copy real source.
-RUN find target -name "*.rlib" -path "*/securenet*" -delete
+RUN if [ -d target ]; then find target -name "*.rlib" -path "*/securenet*" -delete; fi
 
 COPY crates/ crates/
 

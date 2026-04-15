@@ -571,15 +571,14 @@ pub struct HealthResponse {
     pub uptime_secs: u64,
 }
 
-/// `GET /healthz`
-pub async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
-    let uptime = state.started_at.elapsed().as_secs();
+/// `GET /healthz` — liveness probe that doesn't require state
+pub async fn healthz() -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(HealthResponse {
             status: "ok",
             version: env!("CARGO_PKG_VERSION"),
-            uptime_secs: uptime,
+            uptime_secs: 0,
         }),
     )
 }

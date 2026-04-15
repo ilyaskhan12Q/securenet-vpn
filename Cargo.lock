@@ -540,9 +540,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "1.1.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+checksum = "0e78417baa3b3114dc0e95e7357389a249c4da97c3c2b540700079db6171bfd7"
 
 [[package]]
 name = "colorchoice"
@@ -2570,7 +2570,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "securenet-api"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2596,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-client"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-server"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "axum",

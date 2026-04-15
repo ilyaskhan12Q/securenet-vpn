@@ -225,7 +225,7 @@ The fastest path to a running stack:
 
 ```sh
 # 1. Clone the repository
-git clone https://github.com/ilyaskhan12Q/securenet-vpn.git
+git clone https://github.com/securenet-vpn/securenet-vpn.git
 cd securenet-vpn
 
 # 2. Copy and edit environment variables
@@ -580,7 +580,7 @@ Liveness probe.  Returns 200 when the process is running.
 ```json
 {
   "status":       "ok",
-  "version":      "1.2.1",
+  "version":      "1.2.2",
   "uptime_secs":  3600
 }
 ```
@@ -710,10 +710,10 @@ iptables  -I OUTPUT ! -o wg0 -m mark ! --mark 0xCAFE -j DROP
 ip6tables -I OUTPUT ! -o wg0 -m mark ! --mark 0xCAFE -j DROP
 ```
 
-The WireGuard UDP socket itself is automatically fwmarked `0xCAFE` (v1.2.1+) so it can still reach
+The WireGuard UDP socket itself is automatically fwmarked `0xCAFE` (v1.2.2+) so it can still reach
 the server endpoint to re-establish the tunnel even while the kill-switch is active.
 
-### Automatic Routing & DNS (v1.2.1+)
+### Automatic Routing & DNS (v1.2.2+)
 
 On Linux, the client now automatically:
 - Fixes routing loops by pinning a route to the server via your original gateway.

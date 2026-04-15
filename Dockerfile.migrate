@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# Dockerfile.migrate
+# Runs SQLx migrations against the PostgreSQL database.
+# ---------------------------------------------------------------------------
+FROM rust:slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cargo-binstall and then sqlx-cli (pre-compiled binary)
+RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+RUN cargo binstall -y sqlx-cli@0.8.3
+
+WORKDIR /migrations
+COPY crates/securenet-api/migrations .
+
+# The DATABASE_URL is provided by docker-compose
+ENTRYPOINT ["sqlx", "migrate", "run", "--source", "."]

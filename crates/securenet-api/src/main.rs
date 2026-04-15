@@ -81,16 +81,27 @@ async fn main() -> Result<()> {
         .init();
 
     // --- Config ---
-    let cfg = Arc::new(
-        ServerConfig::from_file(&cli.config)
-            .with_context(|| format!("Failed to read config {:?}", cli.config))?,
-    );
+    let cfg = match ServerConfig::from_file(&cli.config) {
+        Ok(cfg) => Arc::new(cfg),
+        Err(e) => {
+            eprintln!("FAIL: config: {}: {:?}", cli.config.display(), e);
+            return Err(anyhow::anyhow!("Config load failed"));
+        }
+    };
+    eprintln!("OK: config loaded from {:?}", cli.config);
 
     // --- Database ---
-    let pool = PgPoolOptions::new()
+    let pool = match PgPoolOptions::new()
         .max_connections(cfg.database.max_connections)
         .connect_lazy(&cfg.database.url)
-        .context("Database connection failed")?;
+    {
+        Ok(pool) => pool,
+        Err(e) => {
+            eprintln!("FAIL: db connect: {}", e);
+            return Err(anyhow::anyhow!("Database connect failed"));
+        }
+    };
+    eprintln!("OK: db lazy pool created");
 
     // sqlx::migrate!("./migrations")
     //     .run(&pool)
@@ -101,10 +112,14 @@ async fn main() -> Result<()> {
 
     // --- Derive server public key from private ---
     // In production: parse cfg.interface.private_key and derive public key.
-    let server_pub_key = KeyPair::from_private_key_base64(&cfg.interface.private_key)
-        .context("Invalid interface private_key")?
-        .public
-        .to_base64();
+    let server_pub_key = match KeyPair::from_private_key_base64(&cfg.interface.private_key) {
+        Ok(kp) => kp.public.to_base64(),
+        Err(e) => {
+            eprintln!("FAIL: key derive: {:?}", e);
+            return Err(anyhow::anyhow!("Invalid private_key"));
+        }
+    };
+    eprintln!("OK: key derived");
 
     let state = AppState {
         config: cfg.clone(),
