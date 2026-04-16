@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: securenet-api
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./Dockerfile.api
+    plan: free
+    envVars:
+      - key: SECURENET_CONFIG
+        value: /etc/securenet/server.toml
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
