@@ -494,13 +494,25 @@ async fn cmd_up(config_path: &PathBuf, endpoint_override: Option<String>) -> Res
 
     info!("System routing and DNS updated");
 
+    // Wait for SIGINT (Ctrl-C) OR SIGTERM (systemd stop / kill)
+    #[cfg(target_os = "linux")]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = signal(SignalKind::terminate())
+            .context("Failed to install SIGTERM handler")?;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => { info!("SIGINT received"); }
+            _ = sigterm.recv()          => { info!("SIGTERM received"); }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
     tokio::signal::ctrl_c().await?;
 
     info!("Disconnecting…");
     tun_to_net.abort();
     net_to_tun.abort();
 
-    // Cleanup
+    // Cleanup routing + DNS first, then kill-switch (order matters)
     let _ = cleanup_system_config(&cfg.interface.tun_name, &server_ip).await;
 
     if cfg.kill_switch {
@@ -633,26 +645,52 @@ async fn cmd_connect(config_path: &PathBuf, api_url: &str, token: Option<&str>) 
 #[cfg(target_os = "linux")]
 async fn apply_kill_switch(tun_name: &str) -> Result<()> {
     info!(%tun_name, "Applying kill-switch");
-    let rules = vec![
-        format!("iptables -I OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP"),
-        format!("ip6tables -I OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP"),
-    ];
-    for rule in rules {
-        run_cmd("sh", &["-c", &rule]).await?;
-    }
+
+    // Step 1: Allow loopback traffic (must come before the DROP rule)
+    run_cmd("sh", &["-c", "iptables -I OUTPUT -o lo -j ACCEPT"]).await.ok();
+    run_cmd("sh", &["-c", "ip6tables -I OUTPUT -o lo -j ACCEPT"]).await.ok();
+
+    // Step 2: Add a policy routing rule so that packets marked 0xCAFE
+    // (the WireGuard socket mark) still route through the main table.
+    // This lets WireGuard's UDP handshake bypass the DROP rule below.
+    run_cmd(
+        "ip",
+        &["rule", "add", "fwmark", "0xCAFE", "table", "main", "priority", "100"],
+    ).await.ok(); // ok() — may already exist
+
+    // Step 3: Block all non-VPN, non-marked traffic  
+    run_cmd(
+        "sh",
+        &["-c", &format!("iptables -I OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP")],
+    ).await?;
+    run_cmd(
+        "sh",
+        &["-c", &format!("ip6tables -I OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP")],
+    ).await?;
+
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 async fn remove_kill_switch(tun_name: &str) -> Result<()> {
     info!(%tun_name, "Removing kill-switch");
-    let rules = vec![
-        format!("iptables -D OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP"),
-        format!("ip6tables -D OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP"),
-    ];
-    for rule in rules {
-        run_cmd("sh", &["-c", &rule]).await.ok(); // best-effort on shutdown
-    }
+    // Remove in reverse order of installation
+    run_cmd(
+        "sh",
+        &["-c", &format!("iptables -D OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP")],
+    ).await.ok();
+    run_cmd(
+        "sh",
+        &["-c", &format!("ip6tables -D OUTPUT ! -o {tun_name} -m mark ! --mark 0xCAFE -j DROP")],
+    ).await.ok();
+    // Remove the fwmark routing rule
+    run_cmd(
+        "ip",
+        &["rule", "del", "fwmark", "0xCAFE", "table", "main", "priority", "100"],
+    ).await.ok();
+    // Remove the loopback ACCEPT rules
+    run_cmd("sh", &["-c", "iptables -D OUTPUT -o lo -j ACCEPT"]).await.ok();
+    run_cmd("sh", &["-c", "ip6tables -D OUTPUT -o lo -j ACCEPT"]).await.ok();
     Ok(())
 }
 
@@ -682,14 +720,16 @@ async fn apply_system_config(tun_name: &str, server_ip: &str, dns_servers: &[Str
     let (gw, iface) = get_default_gateway_linux().await?;
     info!(%gw, %iface, "Found default gateway");
 
-    // 1. Specific route to VPN server via original gateway to avoid routing loops
-    let _ = run_cmd("ip", &["route", "add", server_ip, "via", &gw, "dev", &iface]).await;
+    // 1. Specific host route to VPN server via the real gateway (prevents routing loop).
+    //    Use 'replace' so re-connecting doesn't fail with EEXIST.
+    run_cmd("ip", &["route", "replace", server_ip, "via", &gw, "dev", &iface]).await.ok();
 
-    // 2. Default routes via TUN (using 0.0.0.0/1 and 128.0.0.0/1)
-    run_cmd("ip", &["route", "add", "0.0.0.0/1", "dev", tun_name]).await?;
-    run_cmd("ip", &["route", "add", "128.0.0.0/1", "dev", tun_name]).await?;
+    // 2. Split the default route into two /1 subnets routed via TUN.
+    //    'replace' is idempotent — safe to call even if already present.
+    run_cmd("ip", &["route", "replace", "0.0.0.0/1",   "dev", tun_name]).await?;
+    run_cmd("ip", &["route", "replace", "128.0.0.0/1", "dev", tun_name]).await?;
 
-    // 3. DNS
+    // 3. Rewrite /etc/resolv.conf to use VPN DNS
     if !dns_servers.is_empty() {
         let mut resolv = String::new();
         for dns in dns_servers {

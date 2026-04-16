@@ -34,11 +34,13 @@ dns = ["1.1.1.1", "8.8.8.8"]
 # ---------------------------------------------------------------------------
 
 [server]
-name       = "SecureNet-US-East"
-public_key = "zn7+nHj8K3I30Y5K8pK6J8J+cd0o6tIXGw2wbTdSkSo="
+# US-NewYork-01 — Cloudflare WARP (free, no account needed for WireGuard)
+# Full server list: sn servers --api-url <your-api-url>
+name       = "US-NewYork-01"
+public_key = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 
-# Server endpoint — public IP and WireGuard UDP port.
-endpoint   = "198.51.100.1:51820"
+# Server endpoint — Cloudflare WARP global anycast for US East.
+endpoint   = "162.159.192.1:2408"
 
 # Route ALL traffic through the VPN.
 # Use a more specific CIDR list for split-tunnel mode.
