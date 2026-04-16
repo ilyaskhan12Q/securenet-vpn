@@ -166,7 +166,12 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     // --- Bind and serve ---
-    let bind_addr = cfg.api.bind_addr;
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or_else(|| cfg.api.bind_addr.port());
+    let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+
     info!(%bind_addr, "API server listening");
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
