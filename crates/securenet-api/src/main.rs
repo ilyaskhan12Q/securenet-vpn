@@ -103,10 +103,10 @@ async fn main() -> Result<()> {
     };
     eprintln!("OK: db lazy pool created");
 
-    // sqlx::migrate!("./migrations")
-    //     .run(&pool)
-    //     .await
-    //     .context("Database migration failed")?;
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("Database migration failed")?;
 
     info!("Database configuration loaded (lazy connection)");
 

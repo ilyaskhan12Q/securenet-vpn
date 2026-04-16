@@ -163,7 +163,7 @@ fn sample_servers(state: &AppState) -> Vec<ServerEntry> {
             name: "US-East-01".to_string(),
             country: "US".to_string(),
             city: "New York".to_string(),
-            endpoint: "198.51.100.1:51820".to_string(),
+            endpoint: "127.0.0.1:51820".to_string(),
             public_key: state.server_pub_key.clone(),
             load_percent: 42,
             latency_ms: Some(15),
@@ -468,6 +468,18 @@ pub async fn provision_client(
         );
     }
 
+    if let Err(err) = queue_pending_peer(
+        &state,
+        &req.client_public_key,
+        None,
+        &tunnel_ip,
+        Some(25),
+    )
+    .await
+    {
+        warn!(%err, "Failed to queue peer for WireGuard tunnel");
+    }
+
     (
         StatusCode::OK,
         Json(serde_json::json!(ProvisionResponse {
@@ -502,6 +514,60 @@ fn allocate_tunnel_ip(interface_cidr: &str) -> String {
     )
 }
 
+async fn queue_pending_peer(
+    state: &AppState,
+    public_key: &str,
+    pre_shared_key: Option<&str>,
+    allowed_ips: &str,
+    persistent_keepalive: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO pending_peers (public_key, pre_shared_key, allowed_ips, persistent_keepalive, status)
+        VALUES ($1, $2, $3, $4, 'pending')
+        ON CONFLICT (public_key) DO UPDATE SET
+            allowed_ips = EXCLUDED.allowed_ips,
+            persistent_keepalive = EXCLUDED.persistent_keepalive,
+            status = 'pending',
+            error_message = NULL,
+            created_at = NOW()
+        "#,
+    )
+    .bind(public_key)
+    .bind(pre_shared_key)
+    .bind(allowed_ips)
+    .bind(persistent_keepalive)
+    .execute(&state.db)
+    .await?;
+    Ok(())
+}
+
+async fn apply_pending_peer(state: &AppState) -> Result<Option<(String, Option<String>, String, Option<i32>)>, sqlx::Error> {
+    let row: Option<(String, Option<String>, String, Option<i32>)> = sqlx::query_as(
+        r#"
+        SELECT public_key, pre_shared_key, allowed_ips, persistent_keepalive
+        FROM pending_peers
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(row)
+}
+
+async fn mark_peer_applied(state: &AppState, public_key: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE pending_peers SET status = 'applied', applied_at = NOW() WHERE public_key = $1",
+    )
+    .bind(public_key)
+    .execute(&state.db)
+    .await?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Peer management (admin)
 // ---------------------------------------------------------------------------
@@ -523,7 +589,7 @@ pub struct AddPeerResponse {
 
 /// `POST /v1/admin/peers`  (admin-only)
 pub async fn add_peer(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<AddPeerRequest>,
 ) -> impl IntoResponse {
     // Validate public key format
@@ -539,8 +605,21 @@ pub async fn add_peer(
         }
     }
 
-    // Persist to DB and hot-reload the tunnel at runtime
-    // state.tunnel.add_peer(peer_cfg).await?;
+    let allowed_ips_str = req.allowed_ips.join(",");
+    if let Err(err) = queue_pending_peer(
+        &state,
+        &req.public_key,
+        req.pre_shared_key.as_deref(),
+        &allowed_ips_str,
+        req.persistent_keepalive.map(|k| k as i32),
+    )
+    .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "failed to queue peer"})),
+        );
+    }
 
     (
         StatusCode::CREATED,

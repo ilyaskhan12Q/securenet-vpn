@@ -14,12 +14,13 @@ use clap::Parser;
 use prometheus::{
     register_counter_vec, register_histogram_vec, CounterVec, Encoder, HistogramVec, TextEncoder,
 };
+use sqlx::postgres::PgPoolOptions;
 use tokio::{signal, sync::watch, time};
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use securenet_core::{
-    config::ServerConfig, crypto::KeyPair, tun_device::TunDevice, tunnel::Tunnel,
+    config::{PeerConfig, ServerConfig}, crypto::KeyPair, tun_device::TunDevice, tunnel::Tunnel,
 };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,20 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to start WireGuard tunnel")?;
 
+    // --- Database for pending peer queue ---
+    let db_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect_lazy(&cfg.database.url)
+        .context("Failed to connect to database")?;
+    info!("Connected to peer queue database");
+
+    // --- Peer queue poller ---
+    let tunnel_clone = tunnel.clone();
+    let db_pool_clone = db_pool.clone();
+    tokio::spawn(async move {
+        peer_queue_poller(tunnel_clone, db_pool_clone).await;
+    });
+
     // --- Run post-up hooks ---
     run_hooks(&cfg.interface.post_up, "post-up").await;
 
@@ -282,6 +297,67 @@ async fn run_hooks(commands: &[String], stage: &str) {
             Ok(s) if s.success() => {}
             Ok(s) => warn!(%stage, %cmd, code = ?s.code(), "Hook exited non-zero"),
             Err(e) => error!(%stage, %cmd, err = %e, "Hook execution failed"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Peer queue poller
+// ---------------------------------------------------------------------------
+
+async fn peer_queue_poller(tunnel: Tunnel, pool: sqlx::PgPool) {
+    let mut interval = time::interval(Duration::from_secs(2));
+
+    loop {
+        interval.tick().await;
+
+        let result: Result<Option<(String, Option<String>, String, Option<i32>)>, sqlx::Error> = sqlx::query_as(
+            r#"
+            SELECT public_key, pre_shared_key, allowed_ips, persistent_keepalive
+            FROM pending_peers
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&pool)
+        .await;
+
+        let Ok(Some((pub_key, psk, allowed_ips, keepalive))) = result else {
+            continue;
+        };
+
+        let psk_opt: Option<&str> = psk.as_deref();
+
+        let peer_cfg = PeerConfig {
+            name: "dynamic-peer".to_string(),
+            public_key: pub_key.clone(),
+            pre_shared_key: psk_opt.map(String::from),
+            endpoint: None,
+            allowed_ips: allowed_ips.split(',').map(String::from).collect(),
+            persistent_keepalive: keepalive.map(|k| k as u16),
+        };
+
+        match tunnel.add_peer(peer_cfg).await {
+            Ok(()) => {
+                info!(peer = %pub_key, "Added peer from pending queue");
+                let _ = sqlx::query(
+                    "UPDATE pending_peers SET status = 'applied', applied_at = NOW() WHERE public_key = $1"
+                )
+                .bind(&pub_key)
+                .execute(&pool)
+                .await;
+            }
+            Err(e) => {
+                warn!(err = %e, peer = %pub_key, "Failed to add peer");
+                let _ = sqlx::query(
+                    "UPDATE pending_peers SET status = 'failed', error_message = $1 WHERE public_key = $2"
+                )
+                .bind(e.to_string())
+                .bind(&pub_key)
+                .execute(&pool)
+                .await;
+            }
         }
     }
 }

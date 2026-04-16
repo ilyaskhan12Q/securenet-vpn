@@ -2570,7 +2570,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "securenet-api"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2596,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-client"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-core"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "securenet-server"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -2653,6 +2653,7 @@ dependencies = [
  "hex",
  "prometheus",
  "securenet-core",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

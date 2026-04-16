@@ -110,6 +110,8 @@ services:
       - "51820:51820/udp"
     networks:
       - internal
+    devices:
+      - /dev/net/tun:/dev/net/tun
     depends_on:
       securenet-api:
         condition: service_healthy

@@ -15,30 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Cache dependency layers before copying source.
 COPY Cargo.toml Cargo.lock ./
-COPY crates/securenet-core/Cargo.toml  crates/securenet-core/Cargo.toml
-COPY crates/securenet-server/Cargo.toml crates/securenet-server/Cargo.toml
-COPY crates/securenet-api/Cargo.toml   crates/securenet-api/Cargo.toml
-COPY crates/securenet-client/Cargo.toml crates/securenet-client/Cargo.toml
-
-# Create stub lib/main files so Cargo fetches and compiles deps only.
-RUN mkdir -p crates/securenet-core/src \
-             crates/securenet-server/src \
-             crates/securenet-api/src \
-             crates/securenet-client/src && \
-    echo "pub fn _stub() {}" > crates/securenet-core/src/lib.rs && \
-    echo "fn main() {}"      > crates/securenet-server/src/main.rs && \
-    echo "fn main() {}"      > crates/securenet-api/src/main.rs && \
-    echo "fn main() {}"      > crates/securenet-client/src/main.rs
-
-RUN cargo build --release -p securenet-server
-
-# Remove the stubs and copy real source.
-RUN if [ -d target ]; then find target -name "*.rlib" -path "*/securenet*" -delete; fi
-
 COPY crates/ crates/
-
 RUN cargo build --release -p securenet-server
 
 # ---------------------------------------------------------------------------
