@@ -542,7 +542,8 @@ async fn queue_pending_peer(
     Ok(())
 }
 
-async fn apply_pending_peer(state: &AppState) -> Result<Option<(String, Option<String>, String, Option<i32>)>, sqlx::Error> {
+#[allow(dead_code)]
+async fn _apply_pending_peer(state: &AppState) -> Result<Option<(String, Option<String>, String, Option<i32>)>, sqlx::Error> {
     let row: Option<(String, Option<String>, String, Option<i32>)> = sqlx::query_as(
         r#"
         SELECT public_key, pre_shared_key, allowed_ips, persistent_keepalive
@@ -558,7 +559,7 @@ async fn apply_pending_peer(state: &AppState) -> Result<Option<(String, Option<S
     Ok(row)
 }
 
-async fn mark_peer_applied(state: &AppState, public_key: &str) -> Result<(), sqlx::Error> {
+async fn _mark_peer_applied(state: &AppState, public_key: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE pending_peers SET status = 'applied', applied_at = NOW() WHERE public_key = $1",
     )
@@ -606,7 +607,7 @@ pub async fn add_peer(
     }
 
     let allowed_ips_str = req.allowed_ips.join(",");
-    if let Err(err) = queue_pending_peer(
+    if let Err(_err) = queue_pending_peer(
         &state,
         &req.public_key,
         req.pre_shared_key.as_deref(),

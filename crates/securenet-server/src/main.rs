@@ -17,7 +17,7 @@ use prometheus::{
 use sqlx::postgres::PgPoolOptions;
 use tokio::{signal, sync::watch, time};
 use tracing::{error, info, warn};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 use securenet_core::{
     config::{PeerConfig, ServerConfig}, crypto::KeyPair, tun_device::TunDevice, tunnel::Tunnel,
@@ -57,36 +57,46 @@ struct Cli {
 // ---------------------------------------------------------------------------
 
 struct Metrics {
+    #[allow(dead_code)]
     packets_tx: CounterVec,
+    #[allow(dead_code)]
     packets_rx: CounterVec,
+    #[allow(dead_code)]
     bytes_tx: CounterVec,
+    #[allow(dead_code)]
     bytes_rx: CounterVec,
+    #[allow(dead_code)]
     handshake_latency: HistogramVec,
 }
 
 impl Metrics {
     fn new() -> Result<Self> {
         Ok(Self {
+            #[allow(dead_code)]
             packets_tx: register_counter_vec!(
                 "securenet_packets_transmitted_total",
                 "Total WireGuard packets sent",
                 &["peer"]
             )?,
+            #[allow(dead_code)]
             packets_rx: register_counter_vec!(
                 "securenet_packets_received_total",
                 "Total WireGuard packets received",
                 &["peer"]
             )?,
+            #[allow(dead_code)]
             bytes_tx: register_counter_vec!(
                 "securenet_bytes_transmitted_total",
                 "Total bytes sent through the tunnel",
                 &["peer"]
             )?,
+            #[allow(dead_code)]
             bytes_rx: register_counter_vec!(
                 "securenet_bytes_received_total",
                 "Total bytes received through the tunnel",
                 &["peer"]
             )?,
+            #[allow(dead_code)]
             handshake_latency: register_histogram_vec!(
                 "securenet_handshake_duration_seconds",
                 "WireGuard handshake round-trip latency",
@@ -186,7 +196,7 @@ async fn main() -> Result<()> {
     // --- Graceful shutdown ---
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
-    let shutdown_handle = tokio::spawn(async move {
+    let _shutdown_handle = tokio::spawn(async move {
         match signal::ctrl_c().await {
             Ok(()) => info!("SIGINT received, shutting down"),
             Err(e) => error!(err = %e, "Failed to listen for SIGINT"),
