@@ -772,32 +772,34 @@ stealth_mode = false   # not yet implemented
 
 ## Deployment
 
-### Bare Metal / VM (recommended for production)
+### Google Cloud (Always Free) — RECOMMENDED
+For a totally free, permanently available VPN server, use **Google Cloud Platform (GCP)**.
 
+1.  **Create VM**: Create an `e2-micro` instance in `us-east1`, `us-west1`, or `us-central1`.
+2.  **Firewall**: Open **UDP 51820** (WireGuard) and **TCP 8080** (API) in the GCP Console.
+3.  **CI/CD**: Add your VM's IP and SSH key to GitHub Secrets (`GCP_VM_IP`, `SSH_PRIVATE_KEY`, `SSH_USER`).
+4.  **Go Live**: Just `git push origin master`. GitHub Actions will automatically build and deploy the entire stack.
+
+### Automated Cloud Script
+Alternatively, use the provided one-command deployment script:
+```sh
+chmod +x cloud-deploy/cloud-deploy.sh
+./cloud-deploy/cloud-deploy.sh user@<your-vm-ip> ~/.ssh/your-key.pem
+```
+
+### Bare Metal / VM
 ```sh
 # On the server
 sudo ./scripts/setup.sh
-
-# Verify
-systemctl status securenet-server
-systemctl status securenet-api
-journalctl -u securenet-server -f
 ```
-
-The setup script:
-1. Installs system packages (wireguard-tools, iptables, PostgreSQL client)
-2. Builds and installs binaries from source
-3. Generates a WireGuard key pair
-4. Installs `systemd` service units for both daemons
-5. Opens firewall ports (iptables / `netfilter-persistent`)
-6. Enables IP forwarding permanently via `/etc/sysctl.conf`
+The setup script installs systemd services, handles dependencies, and configures the firewall.
 
 ### Docker Compose
-
 ```sh
 docker compose up -d
 docker compose logs -f securenet-server
 ```
+
 
 ### Kubernetes (Helm — planned)
 
